@@ -1,24 +1,31 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import Control.Monad (unless)
+
 import Control.Lens
 
-import Graphics.Gloss.Interface.Pure.Game hiding (Event)
-import qualified Graphics.Gloss.Interface.Pure.Game as GG
-import Graphics.Gloss.Data.Bitmap
+import SDL hiding (Event)
+import qualified SDL.Event as SE
 
 import Control.FRPNow.Core
 
-makePrisms ''GG.Event
-
-type GEvent = GG.Event
-
+type SEvent = SE.Event
+makeLensesWith (lensRulesFor [("eventPayload", "_eventPayload")]) ''SE.Event
 
 main :: IO ()
-main = do let d = InWindow "hello" (1000, 1000) (0, 0)
-          let c = black
-          let fps = 60
-          p <- loadBMP "data/test.bmp"
+main = do initializeAll
+          window <- createWindow "My SDL Application" defaultWindow
+          renderer <- createRenderer window (-1) defaultRenderer
+          t <- createTextureFromSurface renderer =<< loadBMP "data/test.bmp"
+          appLoop t renderer
 
-          play d c fps p id (flip const) (flip const)
+
+appLoop :: Texture -> Renderer -> IO ()
+appLoop t r = do evts <- fmap eventPayload <$> pollEvents
+                 mapM_ print evts
+                 copy r t Nothing Nothing
+                 present r
+                 unless (elem QuitEvent evts) $ appLoop t r
