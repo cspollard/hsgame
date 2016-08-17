@@ -10,22 +10,29 @@ import Control.Lens
 import SDL hiding (Event)
 import qualified SDL.Event as SE
 
+import Linear.Affine
+import Linear.V2
+
 import Control.FRPNow.Core
 
 type SEvent = SE.Event
-makeLensesWith (lensRulesFor [("eventPayload", "_eventPayload")]) ''SE.Event
+makeLenses ''EventPayload
 
 main :: IO ()
 main = do initializeAll
           window <- createWindow "My SDL Application" defaultWindow
           renderer <- createRenderer window (-1) defaultRenderer
-          t <- createTextureFromSurface renderer =<< loadBMP "data/test.bmp"
-          appLoop t renderer
+          bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
+          face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
+          playFace bkg face renderer
 
 
-appLoop :: Texture -> Renderer -> IO ()
-appLoop t r = do evts <- fmap eventPayload <$> pollEvents
-                 mapM_ print evts
-                 copy r t Nothing Nothing
-                 present r
-                 unless (elem QuitEvent evts) $ appLoop t r
+playFace :: Texture -> Texture -> Renderer -> IO ()
+playFace bkg face r = do e <- eventPayload <$> waitEvent
+                         case e of
+                              QuitEvent -> return ()
+                              MouseMotionEvent mm -> do copy r bkg Nothing Nothing
+                                                        copy r face Nothing . Just $ Rectangle (fromIntegral <$> mouseMotionEventPos mm) (V2 100 100)
+                                                        present r
+                                                        playFace bkg face r
+                              _                   -> playFace bkg face r
