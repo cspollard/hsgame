@@ -3,7 +3,10 @@
 
 module Main where
 
+import Foreign.C.Types (CInt)
+
 import Control.Monad (unless)
+import Control.Monad.IO.Class
 
 import Control.Lens
 
@@ -18,12 +21,20 @@ import Control.FRPNow.Core
 type SEvent = SE.Event
 makeLenses ''EventPayload
 
+textureSize :: MonadIO m => Texture -> m (V2 CInt)
+textureSize t = do ti <- queryTexture t
+                   let w = textureWidth ti
+                   let h = textureHeight ti
+                   return $ V2 w h
+
 main :: IO ()
 main = do initializeAll
           window <- createWindow "My SDL Application" defaultWindow
           renderer <- createRenderer window (-1) defaultRenderer
           bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
           face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
+          ts <- textureSize bkg
+          windowSize window $= ts
           playFace bkg face renderer
 
 
