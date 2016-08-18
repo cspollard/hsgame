@@ -22,8 +22,11 @@ executable hsgame
   build-depends:       base >=4.8 && <4.9
                      , lens >=4.13
                      , transformers >=0.4
+                     , conduit >=1.2
+                     , conduit-combinators >=1.0
+                     , stm >=2.4
+                     , stm-conduit >=2.8
                      , sdl2 >=2.1
-                     , frpnow >=0.18
                      , linear >=1.20
   hs-source-dirs:      src
                      , app
