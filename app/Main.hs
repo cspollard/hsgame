@@ -35,13 +35,13 @@ main = do initializeAll
           face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
           ts <- textureSize bkg
           windowSize window $= ts
-          playFace bkg face renderer
+          runNowMaster (playFace bkg face renderer)
 
 
-playFace :: Texture -> Texture -> Renderer -> IO ()
-playFace bkg face r = do e <- eventPayload <$> waitEvent
+playFace :: Texture -> Texture -> Renderer -> Now (Event ())
+playFace bkg face r = do e <- sync $ eventPayload <$> waitEvent
                          case e of
-                              QuitEvent -> return ()
+                              QuitEvent -> async $ return ()
                               MouseMotionEvent mm -> do copy r bkg Nothing Nothing
                                                         copy r face Nothing . Just $ Rectangle (fromIntegral <$> mouseMotionEventPos mm) (V2 100 100)
                                                         present r

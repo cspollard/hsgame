@@ -3,5 +3,5 @@ extra-package-dbs: []
 packages:
 - '.'
 extra-deps:
-- frpnow-0.11
+- frpnow-0.18
 resolver: lts-6.10
