@@ -5,6 +5,8 @@ module Main where
 
 import Foreign.C.Types (CInt)
 
+import Data.Word (Word32)
+
 import Control.Monad (unless)
 import Control.Monad.IO.Class
 
@@ -16,7 +18,7 @@ import qualified SDL.Event as SE
 import Linear.Affine
 import Linear.V2
 
-import Control.FRPNow.Core
+import Control.FRPNow
 
 type SEvent = SE.Event
 makeLenses ''EventPayload
@@ -27,6 +29,23 @@ textureSize t = do ti <- queryTexture t
                    let h = textureHeight ti
                    return $ V2 w h
 
+
+data Redraw = Redraw
+type MyEvent = Either Redraw SEvent
+
+
+setFPS :: Word32 -> Now (EvStream Redraw)
+setFPS t = do (es, cb) <- callbackStream
+              addTimer t $ \_ -> do cb Redraw; return (Reschedule t)
+              return es
+
+
+sevents :: Now (EvStream SEvent)
+sevents = do (es, cb) <- callbackStream
+             sync $ mapEvents cb
+             return es
+
+
 main :: IO ()
 main = do initializeAll
           window <- createWindow "My SDL Application" defaultWindow
@@ -35,15 +54,16 @@ main = do initializeAll
           face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
           ts <- textureSize bkg
           windowSize window $= ts
-          runNowMaster (playFace bkg face renderer)
+          runNowMaster $ do tstream <- fmap Left <$> setFPS 30
+                            sevts <- fmap Right <$> sevents
+                            callIOStream (playFace bkg face renderer) (merge tstream sevts)
+                            async $ return ()
 
 
-playFace :: Texture -> Texture -> Renderer -> Now (Event ())
-playFace bkg face r = do e <- sync $ eventPayload <$> waitEvent
-                         case e of
-                              QuitEvent -> async $ return ()
-                              MouseMotionEvent mm -> do copy r bkg Nothing Nothing
-                                                        copy r face Nothing . Just $ Rectangle (fromIntegral <$> mouseMotionEventPos mm) (V2 100 100)
-                                                        present r
-                                                        playFace bkg face r
-                              _                   -> playFace bkg face r
+playFace :: Texture -> Texture -> Renderer -> MyEvent -> IO ()
+playFace bkg face r e = case fmap eventPayload e of
+                             Right QuitEvent -> return ()
+                             Right (MouseMotionEvent mm) -> do copy r bkg Nothing Nothing
+                                                               copy r face Nothing . Just $ Rectangle (fromIntegral <$> mouseMotionEventPos mm) (V2 100 100)
+                             Left Redraw -> present r
+                             _ -> return ()
