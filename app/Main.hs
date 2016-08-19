@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
@@ -10,16 +9,12 @@ import Foreign.C.Types (CInt)
 
 import Control.Monad.IO.Class
 
-import Control.Lens
-
 import SDL
 
 import Linear.Affine
 import Linear.V2
 
-import Conduit
-
-makeLenses ''EventPayload
+import Conduit hiding (($=))
 
 textureSize :: MonadIO m => Texture -> m (V2 CInt)
 textureSize t = do ti <- queryTexture t
@@ -40,7 +35,7 @@ main = do initializeAll
           bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
           face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
           ts <- textureSize bkg
-          windowSize window SDL.$= ts
+          windowSize window $= ts
 
           events $$ playFace bkg face renderer
 
