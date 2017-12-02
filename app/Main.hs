@@ -1,61 +1,70 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE TypeFamilies              #-}
 
 module Main where
 
-import Foreign.C.Types (CInt)
+import           Control.Concurrent.STM
+import           Control.Monad.IO.Class
+import           Control.Monad.State
+import           Foreign.C.Types        (CInt)
+import           Linear.Affine
+import           Linear.V2
+import           Pipes
+import           Pipes.Concurrent
+import           SDL                    hiding (get)
 
-import Control.Monad.IO.Class
-
-import SDL
-
-import Linear.Affine
-import Linear.V2
-
-import Conduit hiding (($=))
 
 textureSize :: MonadIO m => Texture -> m (V2 CInt)
-textureSize t = do ti <- queryTexture t
-                   let w = textureWidth ti
-                   let h = textureHeight ti
-                   return $ V2 w h
-
-
-events :: MonadIO m => Source m Event
-events = do yield =<< waitEvent
-            events
+textureSize t = do
+  ti <- queryTexture t
+  let w = textureWidth ti
+  let h = textureHeight ti
+  return $ V2 w h
 
 
 main :: IO ()
-main = do initializeAll
-          window <- createWindow "My SDL Application" defaultWindow
-          renderer <- createRenderer window (-1) defaultRenderer
-          bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
-          face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
-          ts <- textureSize bkg
-          windowSize window $= ts
+main = do
+  initializeAll
+  window <- createWindow "My SDL Application" defaultWindow
+  renderer <- createRenderer window (-1) defaultRenderer
+  bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
+  face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
+  ts <- textureSize bkg
+  windowSize window $= ts
 
-          events $$ playFace bkg face renderer
+  (eventsOut, eventsIn) <- spawn $ bounded 100
+  loc <- newTVarIO (Just origin)
 
+  void . forkIO . runEffect
+    $ fromInput eventsIn >-> hoist atomically (eventHandler loc)
 
-playFace :: Texture -> Texture -> Renderer -> Sink Event IO ()
-playFace bkg face rend = do copy rend bkg Nothing Nothing
-                            copy rend face Nothing . Just $ Rectangle origin (V2 100 100)
-                            present rend
+  let loop = do
+        mv2 <- readTVarIO loc
+        case mv2 of
+          Nothing -> return ()
+          Just v2 -> do
+            copy renderer bkg Nothing Nothing
+            copy renderer face Nothing . Just $ Rectangle v2 (V2 100 100)
+            present renderer
+            es <- pollEvents
+            runEffect $ each es >-> toOutput eventsOut
+            loop
 
-                            go bkg face rend
+  loop
 
+  where
+    eventHandler loc = do
+      e <- await
+      case eventPayload e of
+        MouseMotionEvent mm -> do
+          lift . writeTVar loc . Just
+            $ fromIntegral <$> mouseMotionEventPos mm
+          eventHandler loc
 
-    where go b f r = do e <- await
-                        liftIO $ print e
-                        case e of
-                             Nothing -> go b f r
-                             Just evt -> case eventPayload evt of
-                                              QuitEvent -> return ()
-                                              MouseMotionEvent mm -> do copy r bkg Nothing Nothing
-                                                                        copy r face Nothing . Just $ Rectangle (fromIntegral <$> mouseMotionEventPos mm) (V2 100 100)
-                                                                        present r
-                                                                        go b f r
-                                              _ -> go b f r
+        QuitEvent -> lift $ writeTVar loc Nothing
+
+        _ -> eventHandler loc
