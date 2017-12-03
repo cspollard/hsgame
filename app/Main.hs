@@ -1,70 +1,67 @@
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE TypeFamilies              #-}
 
 module Main where
 
+import           Behavior                         hiding (lift, map, mapM)
+import           Control.Category
 import           Control.Concurrent.STM
-import           Control.Monad.IO.Class
-import           Control.Monad.State
-import           Foreign.C.Types        (CInt)
-import           Linear.Affine
-import           Linear.V2
+import           Control.Monad.Reader
+import           Graphics.Gloss.Interface.IO.Game
 import           Pipes
 import           Pipes.Concurrent
-import           SDL                    hiding (get)
+import           Pipes.Lift
+import qualified Pipes.Prelude                    as P
+import           Prelude                          hiding (id, (.))
 
 
-textureSize :: MonadIO m => Texture -> m (V2 CInt)
-textureSize t = do
-  ti <- queryTexture t
-  let w = textureWidth ti
-  let h = textureHeight ti
-  return $ V2 w h
+type EventHandler m = BehaviorT m Event
+
+eventHandler
+  :: (MonadTrans t, MonadReader (TVar Picture) (t STM))
+  => BehaviorT (t STM) Event ()
+eventHandler = BehaviorT $ \e ->
+      case e of
+        EventKey (MouseButton LeftButton) Down _ pos
+          -> return (leftMouseDown pos, ())
+        _                                  -> return (eventHandler, ())
+
+leftMouseDown
+  :: (MonadTrans t, MonadReader (TVar Picture) (t STM))
+  => (Float, Float) -> BehaviorT (t STM) Event ()
+leftMouseDown pos = BehaviorT $ \e ->
+  case e of
+    EventKey (MouseButton LeftButton) Up _ _ -> do
+      p <- ask
+      lift $ writeTVar p Blank
+      return (eventHandler, ())
+
+    EventMotion pos' -> do
+      p <- ask
+      lift . modifyTVar p $ mappend . color red $ line [pos, pos']
+      return (leftMouseDown pos', ())
+
+    _ -> return (leftMouseDown pos, ())
 
 
 main :: IO ()
 main = do
-  initializeAll
-  window <- createWindow "My SDL Application" defaultWindow
-  renderer <- createRenderer window (-1) defaultRenderer
-  bkg <- createTextureFromSurface renderer =<< loadBMP "data/bkg.bmp"
-  face <- createTextureFromSurface renderer =<< loadBMP "data/face.bmp"
-  ts <- textureSize bkg
-  windowSize window $= ts
+  world <- newTVarIO Blank
 
-  (eventsOut, eventsIn) <- spawn $ bounded 100
-  loc <- newTVarIO (Just origin)
+  (eventsOut, eventsIn) <- spawn unbounded
 
-  void . forkIO . runEffect
-    $ fromInput eventsIn >-> hoist atomically (eventHandler loc)
+  void . forkIO . runEffect . runReaderP world
+    $ fromInput eventsIn
+      >-> hoist (hoist atomically) (liftPipe eventHandler)
+      >-> P.drain
 
-  let loop = do
-        mv2 <- readTVarIO loc
-        case mv2 of
-          Nothing -> return ()
-          Just v2 -> do
-            copy renderer bkg Nothing Nothing
-            copy renderer face Nothing . Just $ Rectangle v2 (V2 100 100)
-            present renderer
-            es <- pollEvents
-            runEffect $ each es >-> toOutput eventsOut
-            loop
 
-  loop
-
-  where
-    eventHandler loc = do
-      e <- await
-      case eventPayload e of
-        MouseMotionEvent mm -> do
-          lift . writeTVar loc . Just
-            $ fromIntegral <$> mouseMotionEventPos mm
-          eventHandler loc
-
-        QuitEvent -> lift $ writeTVar loc Nothing
-
-        _ -> eventHandler loc
+  playIO
+    (InWindow "Hello!" (800, 800) (800, 800))
+    black
+    10
+    world
+    readTVarIO
+    (\e w -> atomically (send eventsOut e) >> return w)
+    (\_ w -> return w)
